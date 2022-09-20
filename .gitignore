@@ -1,0 +1,11 @@
+##################
+### .gitignore ###
+##################
+
+## executable and object files ##
+thesan-mfp
+*.o
+output/*
+Makefile
+
+
