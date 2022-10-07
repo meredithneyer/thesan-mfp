@@ -27,6 +27,7 @@ typedef long long myint;
 
 // Configuration constants
 static const bool VERBOSE = true;            // Print extra information
+static const bool USE_RENDERS = false;       // Use renders instead of smooth_renders
 static const int n_mfp = 10000;              // Number of mfp samplings (10^4)
 // static const int n_mfp = 100000;             // Number of mfp samplings (10^5)
 // static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
@@ -59,6 +60,7 @@ static double UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s;
 static double length_to_cgs, volume_to_cgs, mass_to_cgs, velocity_to_cgs;
 
 // Grid variables
+static int n_files = 1;                      // Number of render files
 static myint Ngrid;                          // Number of pixels on a side
 static myint Ngrid2;                         // Save hyperslab size
 static myint Ngrid3;                         // Total number of cells
@@ -73,6 +75,7 @@ static vector<int> mfp_hist;                 // Histogram of bubble sizes
 
 static void read_header();                   // Read header information
 static void read_data();                     // Read grid data
+static void read_render_data();              // Read grid data
 static void apply_threshold();               // Apply HII fraction threshold
 static void calculate_mfps();                // Calculate all mean-free-paths
 static double calculate_mfp();               // Calculate mean-free-path (cell width units)
@@ -154,7 +157,10 @@ int main(int argc, char** argv) {
        << " cMpc\nPixSize = " << 1e-3*PixSize << " cMpc/h = " << 1e-3*PixSize/h << " cMpc" << endl;
 
   // Read grid data
-  read_data();
+  if (USE_RENDER)
+    read_render_data();
+  else
+    read_data();
 
   // Apply HII fraction threshold
   apply_threshold();
@@ -177,11 +183,21 @@ int main(int argc, char** argv) {
 
 //! \brief Read header information.
 static void read_header() {
-  string filename = ren_dir + "/smooth" + snap_str + ".hdf5";
+  string filename;
+  if (USE_RENDER)
+    filename = ren_dir + "/render" + snap_str + ".000.hdf5";
+  else
+    filename = ren_dir + "/smooth" + snap_str + ".hdf5";
 
   hid_t file_id, group_id, attribute_id;
   file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   group_id = H5Gopen(file_id, "Header", H5P_DEFAULT);
+
+  if (USE_RENDER) {
+    attribute_id = H5Aopen_name(group_id, "NumFiles");
+    H5Aread(attribute_id, H5T_NATIVE_INT, &n_files);
+    H5Aclose(attribute_id);
+  }
 
   int NumPixels; // Saved as int type
   attribute_id = H5Aopen_name(group_id, "NumPixels");
@@ -263,6 +279,44 @@ static void read_data() {
   H5Dclose(dataset);
 
   H5Fclose(file_id);
+
+  // Print data
+  if (VERBOSE) {
+    cout << "\nHII_Fraction = ["
+         << HII_Fraction[0] << " "
+         << HII_Fraction[1] << " "
+         << HII_Fraction[2] << " ... "
+         << HII_Fraction[Ngrid3-3] << " "
+         << HII_Fraction[Ngrid3-2] << " "
+         << HII_Fraction[Ngrid3-1] << "]" << endl;
+  }
+}
+
+
+//! \brief Read render grid data.
+static void read_render_data() {
+  hid_t file_id, dspace, dataset;
+
+  HII_Fraction.resize(Ngrid3);               // Allocate space
+
+  myint offset = 0;
+  for (int i = 0; i < n_files; ++i) {
+    string i_str = sting::to_string(i);
+    i_str = "_" + string(3 - i_str.length(), '0') + i_str; // %03d format
+    string filename = ren_dir + "/render" + snap_str + "." + i_str + "hdf5";
+
+    file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    dataset = H5Dopen(file_id, "HII_Fraction", H5P_DEFAULT);
+    dataspace = H5Dget_space(dataset);
+    const int n_dims = H5Sget_simple_extent_ndims(dataspace);
+    hsize_t dims[n_dims];
+    H5Sget_simple_extent_dims(dataspace, dims, NULL);
+    H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &HII_Fraction[offset]);
+    H5Dclose(dataset);
+    H5Fclose(file_id);
+    myint n_buf = dims[0];
+    offset += n_buf;
+  }
 
   // Print data
   if (VERBOSE) {
