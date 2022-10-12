@@ -29,10 +29,10 @@ typedef long long myint;
 // Configuration constants
 static const bool VERBOSE = true;            // Print extra information
 static const bool USE_RENDERS = false;       // Use renders instead of smooth_renders
-static const int n_mfp = 10000;              // Number of mfp samplings (10^4)
+// static const int n_mfp = 10000;              // Number of mfp samplings (10^4)
 // static const int n_mfp = 100000;             // Number of mfp samplings (10^5)
 // static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
-// static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
+static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
 // static const int n_mfp = 100000000;          // Number of mfp samplings (10^8)
 // static const int n_mfp = 1000000000;         // Number of mfp samplings (10^9)
 static const int n_bins_per_cell = 8;        // Number of histogram bins per cell
@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
 static void read_header() {
   string filename;
   if (USE_RENDERS)
-    filename = ren_dir + "/render" + snap_str + ".000.hdf5";
+    filename = ren_dir + "/render" + snap_str + "/render" + snap_str + ".000.hdf5";
   else
     filename = ren_dir + "/smooth" + snap_str + ".hdf5";
 
@@ -311,8 +311,8 @@ static void read_render_data() {
   myint offset = 0;
   for (int i = 0; i < n_files; ++i) {
     string i_str = to_string(i);
-    i_str = "_" + string(3 - i_str.length(), '0') + i_str; // %03d format
-    string filename = ren_dir + "/render" + snap_str + "." + i_str + "hdf5";
+    i_str = "." + string(3 - i_str.length(), '0') + i_str; // %03d format
+    string filename = ren_dir + "/render" + snap_str + "/render" + snap_str + i_str+ "." + "hdf5";
 
     file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     dataset = H5Dopen(file_id, "HII_Fraction", H5P_DEFAULT);
