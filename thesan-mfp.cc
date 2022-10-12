@@ -14,6 +14,7 @@
 #include <vector>     // Standard vectors
 #include <random>     // Random numbers
 #include <sys/stat.h> // Make directories
+#include <time.h>     // Timing utilities
 #include <omp.h>      // OpenMP parallelism
 #include <hdf5.h>     // HDF5 read / write
 
@@ -114,6 +115,9 @@ double ran() {
  *  \return Exit code (0 = success, 1 = failure).
  */
 int main(int argc, char** argv) {
+  // Start the clock
+  const clock_t start = clock();
+
   // Get the number of OpenMP threads
   #pragma omp parallel
   #pragma omp single
@@ -157,7 +161,7 @@ int main(int argc, char** argv) {
        << " cMpc\nPixSize = " << 1e-3*PixSize << " cMpc/h = " << 1e-3*PixSize/h << " cMpc" << endl;
 
   // Read grid data
-  if (USE_RENDER)
+  if (USE_RENDERS)
     read_render_data();
   else
     read_data();
@@ -177,6 +181,11 @@ int main(int argc, char** argv) {
   centers = vector<double>();
   edges = vector<double>();
 
+  // End the clock and report timings
+  const clock_t end = clock();
+  const double cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+  cout << "\nElapsed time = " << cpu_time_used << " seconds" << endl;
+
   return 0;
 }
 
@@ -184,7 +193,7 @@ int main(int argc, char** argv) {
 //! \brief Read header information.
 static void read_header() {
   string filename;
-  if (USE_RENDER)
+  if (USE_RENDERS)
     filename = ren_dir + "/render" + snap_str + ".000.hdf5";
   else
     filename = ren_dir + "/smooth" + snap_str + ".hdf5";
@@ -193,7 +202,7 @@ static void read_header() {
   file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
   group_id = H5Gopen(file_id, "Header", H5P_DEFAULT);
 
-  if (USE_RENDER) {
+  if (USE_RENDERS) {
     attribute_id = H5Aopen_name(group_id, "NumFiles");
     H5Aread(attribute_id, H5T_NATIVE_INT, &n_files);
     H5Aclose(attribute_id);
@@ -295,13 +304,13 @@ static void read_data() {
 
 //! \brief Read render grid data.
 static void read_render_data() {
-  hid_t file_id, dspace, dataset;
+  hid_t file_id, dataspace, dataset;
 
   HII_Fraction.resize(Ngrid3);               // Allocate space
 
   myint offset = 0;
   for (int i = 0; i < n_files; ++i) {
-    string i_str = sting::to_string(i);
+    string i_str = to_string(i);
     i_str = "_" + string(3 - i_str.length(), '0') + i_str; // %03d format
     string filename = ren_dir + "/render" + snap_str + "." + i_str + "hdf5";
 
@@ -356,8 +365,8 @@ static void apply_threshold() {
          << HII_Fraction[Ngrid3-3] << " "
          << HII_Fraction[Ngrid3-2] << " "
          << HII_Fraction[Ngrid3-1] << "]" << endl;
-    cout << "\nx_HI_before = " << 1. - x_ionized / double(Ngrid3)
-         << "\nx_HI_after  = " << double(n_neutral) / double(Ngrid3) << ")" << endl;
+    cout << "\nGlobal x_HI = " << 1. - x_ionized / double(Ngrid3)
+         << "  (x_HI_thresholds = " << double(n_neutral) / double(Ngrid3) << ")" << endl;
   }
 }
 
@@ -397,7 +406,7 @@ static double calculate_mfp() {
   myint ix, iy, iz, cell;                    // Cell indices
   do {
     cell = floor(ran() * Ngrid3_double);     // Random cell
-  } while (HII_Fraction[cell] > 0.5);        // Ensure cell is ionized
+  } while (HII_Fraction[cell] <= 0.5);       // Ensure cell is ionized
 
   // Initialize (x,y,z) position and indices
   myint prev_cell = cell;                    // Temporary cell indices
