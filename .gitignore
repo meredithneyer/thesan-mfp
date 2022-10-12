@@ -4,6 +4,7 @@
 
 ## executable and object files ##
 thesan-mfp
+thesan-mfp-grid
 *.o
 output/*
 Makefile
