@@ -74,14 +74,14 @@ static vector<double> edges;                 // Cell edge positions (cell width 
 static vector<double> centers;               // Cell center positions (cell width units)
 static vector<float> HII_Fraction;           // HII fraction of each grid cell
 static vector<int> mfp_hist;                 // Histogram of bubble sizes
-static vector<double> mfp_avgs;              // Grid of averages bubble sizes
+static vector<float> mfp_avgs;               // Grid of averages bubble sizes
 
 static void read_header();                   // Read header information
 static void read_data();                     // Read grid data
 static void read_render_data();              // Read grid data
 static void apply_threshold();               // Apply HII fraction threshold
 static void initialize_healpix_directions(const int order); // Calculate healpix directions
-static void calculate_mfp_avgs();                // Calculate all mean-free-paths
+static void calculate_mfp_avgs();            // Calculate all mean-free-paths
 static double calculate_mfp_avg(const myint start_cell); // Calculate mean-free-path of one cell (cell width units)
 static double calculate_mfp_LOS(myint start_cell, const int i_LOS); // Calculate mean-free-path of one direction in one cell (cell width units)
 static void write_data();                    // Write data to an output file
@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
   write_data();
 
   // Free memory (overwrite with empty vectors)
-  mfp_avgs = vector<double>();
+  mfp_avgs = vector<float>();
   mfp_hist = vector<int>();
   HII_Fraction = vector<float>();
   centers = vector<double>();
@@ -437,7 +437,7 @@ void initialize_healpix_directions(const int order) {
 static void calculate_mfp_avgs() {
   n_bins = int(Ngrid) * n_bins_per_cell * n_loops_per_box; // Number of bins
   mfp_hist = vector<int>(n_bins);            // Allocate space and initialize to zero
-  mfp_avgs = vector<double>(Ngrid3);
+  mfp_avgs = vector<float>(Ngrid3);
 
   #pragma omp parallel for
   for (myint i_cell = 0; i_cell < Ngrid3; ++i_cell)
@@ -473,7 +473,7 @@ static double calculate_mfp_avg(const myint start_cell) {
   // for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS)
   for (int i_LOS = 0; i_LOS < 1; ++i_LOS) {
     const double mfp = calculate_mfp_LOS(start_cell, i_LOS);
-    const int i_bin = floor(mfp * double(n_bins_per_cell));      // Mean-free-path bin (oversampled units)
+    const int i_bin = floor(mfp * double(n_bins_per_cell)); // Mean-free-path bin (oversampled units)
     // if (i_bin < 0) error("i_bin < 0");
     // if (i_bin >= n_bins) error("i_bin >= n_bins");
     #pragma omp atomic                       // Atomic is for thread safety
@@ -724,14 +724,14 @@ static void write_1d(hid_t file_id, vector<int>& vec, const char *name) {
 }
 
 //! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
-static void write_grid(hid_t file_id, vector<int>& vec, const char *name) {
+static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) {
   // Identifier
   hsize_t vec_size = vec.size();
   hid_t dataspace_id, dataset_id;
   hsize_t dims1d[1] = {vec_size};
 
   dataspace_id = H5Screate_simple(1, dims1d, NULL);
-  dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_FLOAT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
 
@@ -753,7 +753,7 @@ static void write_grid(hid_t file_id, vector<int>& vec, const char *name) {
   H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
 
   // Write
-  H5Dwrite(dataset, H5T_NATIVE_INT, memspace, filespace, H5P_DEFAULT, vec.data());
+  H5Dwrite(dataset, H5T_NATIVE_FLOAT, memspace, filespace, H5P_DEFAULT, vec.data());
 
   // Close handles
   H5Sclose(memspace);
@@ -795,8 +795,9 @@ static void write_data() {
 
   status = H5Gclose(group_id);
 
-  // Smoothed regrid data
-  write_1d(file_id, mfp_hist, "mfp_avg_R");
+  // Main data
+  write_1d(file_id, mfp_hist, "mfp_hist");
+  write_1d_float(file_id, mfp_avgs, "mfp_avgs");
 
   // Close file
   H5Fclose(file_id);

@@ -686,7 +686,7 @@ static void write_data() {
 
   status = H5Gclose(group_id);
 
-  // Smoothed regrid data
+  // Main data
   write_1d(file_id, mfp_hist, "mfp_hist");
 
   // Close file
