@@ -57,7 +57,7 @@ static unsigned long long seed;              // Seed for random number generator
 #pragma omp threadprivate(seed, thread)      // Unique to each thread
 
 // Header variables
-static double a, BoxSize, PixSize, InvPix, h, Omega0, OmegaBaryon, OmegaLambda;
+static double a, BoxSize, BoxSize_cMpc, PixSize, PixSize_cMpc, InvPix, h, Omega0, OmegaBaryon, OmegaLambda;
 static double UnitLength_in_cm, UnitMass_in_g, UnitVelocity_in_cm_per_s;
 static double length_to_cgs, volume_to_cgs, mass_to_cgs, velocity_to_cgs;
 
@@ -70,17 +70,15 @@ static double Ngrid_double;                  // Number of pixels on a side (doub
 static double Ngrid3_double;                 // Total number of cells (double)
 static double l_max;                         // Max ray-tracing distance (cell width units)
 static int n_bins;                           // Number of histogram bins
-static int n_logR_bins;                      // Number of log(R_eff) histogram bins
-static int n_xHII_bins;                      // Number of x_HII histogram bins
-static int n_logT_bins;                      // Number of log(T) histogram bins
-static int n_logD_bins;                      // Number of log(delta+1) histogram bins
+static const int n_logR_bins = 360;          // Number of log(R_eff) histogram bins
+static const int n_xHII_bins = 360;          // Number of x_HII histogram bins
+static const int n_logT_bins = 360;          // Number of log(T) histogram bins
+static const int n_logD_bins = 360;          // Number of log(delta+1) histogram bins
 static double logR_min, logR_max;            // Min/Max log(R_eff)
 static double xHII_min, xHII_max;            // Min/Max log(R_eff)
 static double logT_min, logT_max;            // Min/Max log(T)
 static double logD_min, logD_max;            // Min/Max log(delta+1)
 static double iw_logR, iw_xHII, iw_logT, iw_logD; // Inverse bin widths
-// Note definition: iw_logT = double(n_logT_bins) / (logT_max - logT_min); // Inverse bin width
-// Note use as: i_logT = floor(iw_logT * (log10(T) - logT_min)); // Index in 2D histogram
 static vector<double> edges;                 // Cell edge positions (cell width units)
 static vector<double> centers;               // Cell center positions (cell width units)
 static vector<float> HII_Fraction;           // HII fraction of each grid cell
@@ -198,10 +196,12 @@ int main(int argc, char** argv) {
 
   // Free memory (overwrite with empty vectors)
   mfp_avgs = vector<float>();
-  mfp_hist = vector<int>();
-  mfp_hist_xHII = vector<int>();
-  mfp_hist_logT = vector<int>();
   mfp_hist_logD = vector<int>();
+  mfp_hist_logT = vector<int>();
+  mfp_hist_xHII = vector<int>();
+  mfp_hist = vector<int>();
+  logD = vector<float>();
+  logT = vector<float>();
   HII_Fraction = vector<float>();
   centers = vector<double>();
   edges = vector<double>();
@@ -292,6 +292,8 @@ static void read_header() {
   H5Fclose(file_id);
 
   PixSize = BoxSize / double(Ngrid);         // Pixel width
+  BoxSize_cMpc = 1e-3 * BoxSize / h;         // Box size [cMpc]
+  PixSize_cMpc = 1e-3 * PixSize / h;         // Pixel width [cMpc]
   InvPix = double(Ngrid) / BoxSize;          // Inverse pixel width
   length_to_cgs = a * UnitLength_in_cm / h;
   volume_to_cgs = length_to_cgs * length_to_cgs * length_to_cgs;
@@ -312,7 +314,26 @@ static void read_data() {
   H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, HII_Fraction.data());
   H5Dclose(dataset);
 
+  logT.resize(Ngrid3);                       // Allocate space
+  dataset = H5Dopen(file_id, "Temperature", H5P_DEFAULT);
+  H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, logT.data());
+  H5Dclose(dataset);
+
+  logD.resize(Ngrid3);                       // Allocate space
+  dataset = H5Dopen(file_id, "Overdensity", H5P_DEFAULT);
+  H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, logD.data());
+  H5Dclose(dataset);
+
   H5Fclose(file_id);
+
+  // Convert T,D as logT,logD values
+  #pragma omp parallel for
+  for (myint i = 0; i < Ngrid3; ++i)
+    logT[i] = log10(logT[i]);
+
+  #pragma omp parallel for
+  for (myint i = 0; i < Ngrid3; ++i)
+    logD[i] = log10(logD[i] + 1.);
 
   // Print data
   if (VERBOSE) {
@@ -323,6 +344,22 @@ static void read_data() {
          << HII_Fraction[Ngrid3-3] << " "
          << HII_Fraction[Ngrid3-2] << " "
          << HII_Fraction[Ngrid3-1] << "]" << endl;
+
+    cout << "\nlog(T) = ["
+         << logT[0] << " "
+         << logT[1] << " "
+         << logT[2] << " ... "
+         << logT[Ngrid3-3] << " "
+         << logT[Ngrid3-2] << " "
+         << logT[Ngrid3-1] << "]" << endl;
+
+    cout << "\nlog(delta+1) = ["
+         << logD[0] << " "
+         << logD[1] << " "
+         << logD[2] << " ... "
+         << logD[Ngrid3-3] << " "
+         << logD[Ngrid3-2] << " "
+         << logD[Ngrid3-1] << "]" << endl;
   }
 }
 
@@ -332,6 +369,8 @@ static void read_render_data() {
   hid_t file_id, dataspace, dataset;
 
   HII_Fraction.resize(Ngrid3);               // Allocate space
+  logT.resize(Ngrid3);
+  logD.resize(Ngrid3);
 
   myint offset = 0;
   for (int i = 0; i < n_files; ++i) {
@@ -340,6 +379,7 @@ static void read_render_data() {
     string filename = ren_dir + "/render" + snap_str + "/render" + snap_str + i_str+ "." + "hdf5";
 
     file_id = H5Fopen(filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+
     dataset = H5Dopen(file_id, "HII_Fraction", H5P_DEFAULT);
     dataspace = H5Dget_space(dataset);
     const int n_dims = H5Sget_simple_extent_ndims(dataspace);
@@ -347,10 +387,42 @@ static void read_render_data() {
     H5Sget_simple_extent_dims(dataspace, dims, NULL);
     H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &HII_Fraction[offset]);
     H5Dclose(dataset);
+
+    dataset = H5Dopen(file_id, "Temperature", H5P_DEFAULT);
+    dataspace = H5Dget_space(dataset);
+    const int n_dims = H5Sget_simple_extent_ndims(dataspace);
+    hsize_t dims[n_dims];
+    H5Sget_simple_extent_dims(dataspace, dims, NULL);
+    H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &logT[offset]);
+    H5Dclose(dataset);
+
+    dataset = H5Dopen(file_id, "Density", H5P_DEFAULT);
+    dataspace = H5Dget_space(dataset);
+    const int n_dims = H5Sget_simple_extent_ndims(dataspace);
+    hsize_t dims[n_dims];
+    H5Sget_simple_extent_dims(dataspace, dims, NULL);
+    H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &logD[offset]);
+    H5Dclose(dataset);
+
     H5Fclose(file_id);
     myint n_buf = dims[0];
     offset += n_buf;
   }
+
+  // Convert T,D as logT,logD values
+  #pragma omp parallel for
+  for (myint i = 0; i < Ngrid3; ++i)
+    logT[i] = log10(logT[i]);
+
+  double DensitySum = 0.;
+  #pragma omp parallel for reduction(+:DensitySum)
+  for (myint i = 0; i < Ngrid3; ++i)
+    DensitySum += logD[i];
+  double InvDensityAvg = double(Ngrid3) / DensitySum;
+
+  #pragma omp parallel for
+  for (myint i = 0; i < Ngrid3; ++i)
+    logD[i] = log10(InvDensityAvg*logD[i]);
 
   // Print data
   if (VERBOSE) {
@@ -361,6 +433,22 @@ static void read_render_data() {
          << HII_Fraction[Ngrid3-3] << " "
          << HII_Fraction[Ngrid3-2] << " "
          << HII_Fraction[Ngrid3-1] << "]" << endl;
+
+    cout << "\nlog(T) = ["
+         << logT[0] << " "
+         << logT[1] << " "
+         << logT[2] << " ... "
+         << logT[Ngrid3-3] << " "
+         << logT[Ngrid3-2] << " "
+         << logT[Ngrid3-1] << "]" << endl;
+
+    cout << "\nlog(delta+1) = ["
+         << logD[0] << " "
+         << logD[1] << " "
+         << logD[2] << " ... "
+         << logD[Ngrid3-3] << " "
+         << logD[Ngrid3-2] << " "
+         << logD[Ngrid3-1] << "]" << endl;
   }
 }
 
@@ -456,23 +544,38 @@ void initialize_healpix_directions(const int order) {
 static void calculate_mfp_avgs() {
   n_bins = int(Ngrid) * n_bins_per_cell * n_loops_per_box; // Number of bins
   mfp_hist = vector<int>(n_bins);            // Allocate space and initialize to zero
+  mfp_hist_xHII = vector<int>(n_xHII_bins);
+  mfp_hist_logT = vector<int>(n_logT_bins);
+  mfp_hist_logD = vector<int>(n_logD_bins);
   mfp_avgs = vector<float>(Ngrid3);
 
-  // Convert T,D as logT,logD values and find min/max
-  logT_min = 10., logT_max = -1.;
+  // Find the min/max of logT and logD
+  logR_min = log10(PixSize_cMpc / double(n_bins_per_cell));
+  logR_max = log10(BoxSize_cMpc * double(n_loops_per_box));
+  xHII_min = 0.5, xHII_max = 1.;
+  logT_min = 10., logT_max = -10.;
   #pragma omp parallel for reduction(min:logT_min) reduction(max:logT_max)
   for (myint i = 0; i < Ngrid3; ++i) {
-    const double logT_i = log10(logT[i]);
-    if (logT_i < logT_min)
-      logT_min = logT_i; // Update minimum
-    if (logT_i > logT_max)
-      logT_max = logT_i; // Update maximum
-    logT[i] = logT_i;
+    if (logT[i] < logT_min)
+      logT_min = logT[i]; // Update minimum
+    if (logT[i] > logT_max)
+      logT_max = logT[i]; // Update maximum
   }
-  // TODO similar for log(delta+1)
 
-  // Define constants n_bins, min/max, and iw
-  // TODO: x_HII in [0.5,1.]  and may want some check that i_xHII in [0,n_bins_xHII)
+  logD_min = 10., logD_max = -10.;
+  #pragma omp parallel for reduction(min:logD_min) reduction(max:logD_max)
+  for (myint i = 0; i < Ngrid3; ++i) {
+    if (logD[i] < logD_min)
+      logD_min = logD[i]; // Update minimum
+    if (logD[i] > logD_max)
+      logD_max = logD[i]; // Update maximum
+  }
+
+  // Define width constants
+  iw_logR = double(n_logR_bins) / (logR_max - logR_min); // Inverse bin width
+  iw_xHII = double(n_xHII_bins) / (xHII_max - xHII_min);
+  iw_logT = double(n_logT_bins) / (logT_max - logT_min);
+  iw_logD = double(n_logD_bins) / (logD_max - logD_min);
 
   #pragma omp parallel for
   for (myint i_cell = 0; i_cell < Ngrid3; ++i_cell)
@@ -505,15 +608,36 @@ static double calculate_mfp_avg(const myint start_cell) {
   if (HII_Fraction[start_cell] <= 0.5)
     return 0.;
 
-  // for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS)
-  for (int i_LOS = 0; i_LOS < 1; ++i_LOS) {
-    const double mfp = calculate_mfp_LOS(start_cell, i_LOS);
+  // Indices in 2D histograms
+  const double i_xHII = floor(iw_xHII * (HII_Fraction[start_cell] - xHII_min));
+  const double i_logT = floor(iw_logT * (logT[start_cell] - logT_min));
+  const double i_logD = floor(iw_logD * (logD[start_cell] - logD_min));
+
+  for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS) {
+    const double mfp = calculate_mfp_LOS(start_cell, i_LOS); // Mean-free-path (cell width units)
+    l_tot_sum += mfp; // Add LOS to the sum (cell width units)
+
+    // 1D Histogram
     const int i_bin = floor(mfp * double(n_bins_per_cell)); // Mean-free-path bin (oversampled units)
     // if (i_bin < 0) error("i_bin < 0");
     // if (i_bin >= n_bins) error("i_bin >= n_bins");
     #pragma omp atomic                       // Atomic is for thread safety
     mfp_hist[i_bin]++;                       // Increment histogram counter
-    l_tot_sum += mfp; // Add LOS to the sum
+
+    // 2D Histograms
+    const double log_mfp = log10(mfp*CellSize_cMpc); // Log mean-free-path (cMpc)
+    const int i_logR = floor(iw_logR * (log_mfp - logR_min)); // Index in 2D histogram
+    // if (i_logR < 0) error("i_logR < 0");
+    // if (i_logR >= n_logR_bins) error("i_logR >= n_logR_bins");
+    const int i_logR_xHII = i_logR * n_xHII_bins + i_xHII; // 1D index
+    const int i_logR_logT = i_logR * n_logT_bins + i_logT;
+    const int i_logR_logD = i_logR * n_logD_bins + i_logD;
+    #pragma omp atomic
+    mfp_hist_xHII[i_logR_xHII]++;            // Increment xHII histogram counter
+    #pragma omp atomic
+    mfp_hist_logT[i_logR_logT]++;            // Increment logT histogram counter
+    #pragma omp atomic
+    mfp_hist_logD[i_logR_logD]++;            // Increment logD histogram counter
   }
 
   return l_tot_sum / double(n_LOS);          // Average mean-free-path (cell width units)
@@ -759,6 +883,45 @@ static void write_1d(hid_t file_id, vector<int>& vec, const char *name) {
 }
 
 //! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
+static void write_2d(hid_t file_id, vector<int>& vec, const char *name, const int nx, const int ny) {
+  // TODO
+  // // Identifier
+  // hsize_t vec_size = vec.size();
+  // hid_t dataspace_id, dataset_id;
+  // hsize_t dims1d[1] = {vec_size};
+
+  // dataspace_id = H5Screate_simple(1, dims1d, NULL);
+  // dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  // H5Dclose(dataset_id);
+  // H5Sclose(dataspace_id);
+
+  // // Open dataset and get dataspace
+  // hid_t dataset   = H5Dopen(file_id, name, H5P_DEFAULT);
+  // hid_t filespace = H5Dget_space(dataset);
+
+  // // File hyperslab
+  // hsize_t file_offset[1] = {0};
+  // hsize_t file_count[1] = {vec_size};
+
+  // H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
+
+  // // Memory hyperslab
+  // hsize_t mem_offset[1] = {0};
+  // hsize_t mem_count[1] = {vec_size};
+
+  // hid_t memspace = H5Screate_simple(1, mem_count, NULL);
+  // H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
+
+  // // Write
+  // H5Dwrite(dataset, H5T_NATIVE_INT, memspace, filespace, H5P_DEFAULT, vec.data());
+
+  // // Close handles
+  // H5Sclose(memspace);
+  // H5Sclose(filespace);
+  // H5Dclose(dataset);
+}
+
+//! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
 static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) {
   // Identifier
   hsize_t vec_size = vec.size();
@@ -814,6 +977,18 @@ static void write_data() {
   WRITE_ATTRIBUTE("BoxSize", BoxSize, H5T_NATIVE_DOUBLE)
   WRITE_ATTRIBUTE("NumPixels", NumPixels, H5T_NATIVE_INT)
   WRITE_ATTRIBUTE("NumBins", n_bins, H5T_NATIVE_INT)
+  WRITE_ATTRIBUTE("NumBinsLogR", n_logR_bins, H5T_NATIVE_INT)
+  WRITE_ATTRIBUTE("NumBinsHII", n_xHII_bins, H5T_NATIVE_INT)
+  WRITE_ATTRIBUTE("NumBinsLogT", n_logT_bins, H5T_NATIVE_INT)
+  WRITE_ATTRIBUTE("NumBinsLogD", n_logD_bins, H5T_NATIVE_INT)
+  WRITE_ATTRIBUTE("MinLogR", logR_min, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MaxLogR", logR_max, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MinHII", xHII_min, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MaxHII", xHII_max, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MinLogT", logT_min, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MaxLogT", logT_max, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MinLogD", logD_min, H5T_NATIVE_DOUBLE)
+  WRITE_ATTRIBUTE("MaxLogD", logD_max, H5T_NATIVE_DOUBLE)
   WRITE_ATTRIBUTE("NumExp", n_exp, H5T_NATIVE_INT)
   WRITE_ATTRIBUTE("NumDirections", n_LOS, H5T_NATIVE_INT)
   WRITE_ATTRIBUTE("NumBinsPerCell", n_bins_per_cell, H5T_NATIVE_INT)
@@ -832,7 +1007,12 @@ static void write_data() {
 
   // Main data
   write_1d(file_id, mfp_hist, "mfp_hist");
+  // TODO
+  // write_2d(file_id, mfp_hist_xHII, "mfp_hist_xHII", n_logR_bins, n_xHII_bins);
+  // write_2d(file_id, mfp_hist_logT, "mfp_hist_logT", n_logR_bins, n_logT_bins);
+  // write_2d(file_id, mfp_hist_logD, "mfp_hist_logD", n_logR_bins, n_logD_bins);
   write_1d_float(file_id, mfp_avgs, "mfp_avgs");
+  // write_1d_float(file_id, mfp_avgs, "mfp_avgs", NumPixels, NumPixels, NumPixels);
 
   // Close file
   H5Fclose(file_id);

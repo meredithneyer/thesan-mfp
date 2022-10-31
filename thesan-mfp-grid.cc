@@ -470,8 +470,7 @@ static double calculate_mfp_avg(const myint start_cell) {
   if (HII_Fraction[start_cell] <= 0.5)
     return 0.;
 
-  // for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS)
-  for (int i_LOS = 0; i_LOS < 1; ++i_LOS) {
+  for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS) {
     const double mfp = calculate_mfp_LOS(start_cell, i_LOS);
     const int i_bin = floor(mfp * double(n_bins_per_cell)); // Mean-free-path bin (oversampled units)
     // if (i_bin < 0) error("i_bin < 0");
