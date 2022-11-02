@@ -722,14 +722,58 @@ static void write_1d(hid_t file_id, vector<int>& vec, const char *name) {
   H5Dclose(dataset);
 }
 
-//! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
-static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) {
-  // Identifier
-  hsize_t vec_size = vec.size();
-  hid_t dataspace_id, dataset_id;
-  hsize_t dims1d[1] = {vec_size};
+//! \brief Writes out a 2d vector quantity, e.g. ((a1,a2,a3,...), (b1,b2,b3,...), ...)
+static void write_2d(hid_t file_id, vector<int>& vec, const char *name, const hsize_t nx, const hsize_t ny) {
+  // Check dimensions
+  if (vec.size() != nx * ny)
+    error("bad # dims [" + to_string(nx) + ", " + to_string(ny) + "], " + to_string(vec.size()));
 
-  dataspace_id = H5Screate_simple(1, dims1d, NULL);
+  // Identifier
+  hid_t dataspace_id, dataset_id;
+  hsize_t dims2d[2] = {nx, ny};
+
+  dataspace_id = H5Screate_simple(2, dims2d, NULL);
+  dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
+
+  // Open dataset and get dataspace
+  hid_t dataset   = H5Dopen(file_id, name, H5P_DEFAULT);
+  hid_t filespace = H5Dget_space(dataset);
+
+  // File hyperslab
+  hsize_t file_offset[2] = {0, 0};
+  hsize_t file_count[2] = {nx, ny};
+
+  H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
+
+  // Memory hyperslab
+  hsize_t mem_offset[2] = {0, 0};
+  hsize_t mem_count[2] = {nx, ny};
+
+  hid_t memspace = H5Screate_simple(2, mem_count, NULL);
+  H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
+
+  // Write
+  H5Dwrite(dataset, H5T_NATIVE_INT, memspace, filespace, H5P_DEFAULT, vec.data());
+
+  // Close handles
+  H5Sclose(memspace);
+  H5Sclose(filespace);
+  H5Dclose(dataset);
+}
+
+//! \brief Writes out a 3d vector quantity
+static void write_3d(hid_t file_id, vector<float>& vec, const char *name, const hsize_t nx, const hsize_t ny, const hsize_t nz) {
+  // Check dimensions
+  if (vec.size() != nx * ny * nz)
+    error("bad # dims");
+
+  // Identifier
+  hid_t dataspace_id, dataset_id;
+  hsize_t dims3d[3] = {nx, ny, nz};
+
+  dataspace_id = H5Screate_simple(3, dims3d, NULL);
   dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_FLOAT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
@@ -739,16 +783,16 @@ static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) 
   hid_t filespace = H5Dget_space(dataset);
 
   // File hyperslab
-  hsize_t file_offset[1] = {0};
-  hsize_t file_count[1] = {vec_size};
+  hsize_t file_offset[3] = {0, 0, 0};
+  hsize_t file_count[3] = {nx, ny, nz};
 
   H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
 
   // Memory hyperslab
-  hsize_t mem_offset[1] = {0};
-  hsize_t mem_count[1] = {vec_size};
+  hsize_t mem_offset[3] = {0, 0, 0};
+  hsize_t mem_count[3] = {nx, ny, nz};
 
-  hid_t memspace = H5Screate_simple(1, mem_count, NULL);
+  hid_t memspace = H5Screate_simple(3, mem_count, NULL);
   H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
 
   // Write
@@ -796,7 +840,7 @@ static void write_data() {
 
   // Main data
   write_1d(file_id, mfp_hist, "mfp_hist");
-  write_1d_float(file_id, mfp_avgs, "mfp_avgs");
+  write_3d(file_id, mfp_avgs, "mfp_avgs");
 
   // Close file
   H5Fclose(file_id);

@@ -5,8 +5,9 @@
 ## executable and object files ##
 thesan-mfp
 thesan-mfp-grid
+thesan-mfp-hist-grid
 *.o
 output/*
 Makefile
-
+.DS_Store
 

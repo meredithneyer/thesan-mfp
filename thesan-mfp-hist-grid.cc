@@ -85,9 +85,9 @@ static vector<float> HII_Fraction;           // HII fraction of each grid cell
 static vector<float> logT;                   // log(T) of each grid cell
 static vector<float> logD;                   // log(delta+1) of each grid cell
 static vector<int> mfp_hist;                 // Histogram of bubble sizes
-static vector<int> mfp_hist_xHII;            // Histogram of bubble sizes also with log(T)
+static vector<int> mfp_hist_xHII;            // Histogram of bubble sizes also with xHII
 static vector<int> mfp_hist_logT;            // Histogram of bubble sizes also with log(T)
-static vector<int> mfp_hist_logD;            // Histogram of bubble sizes also with log(T)
+static vector<int> mfp_hist_logD;            // Histogram of bubble sizes also with log(delta+1)
 static vector<float> mfp_avgs;               // Grid of averages bubble sizes
 
 static void read_header();                   // Read header information
@@ -390,16 +390,16 @@ static void read_render_data() {
 
     dataset = H5Dopen(file_id, "Temperature", H5P_DEFAULT);
     dataspace = H5Dget_space(dataset);
-    const int n_dims = H5Sget_simple_extent_ndims(dataspace);
-    hsize_t dims[n_dims];
+    // const int n_dims = H5Sget_simple_extent_ndims(dataspace);
+    // hsize_t dims[n_dims];
     H5Sget_simple_extent_dims(dataspace, dims, NULL);
     H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &logT[offset]);
     H5Dclose(dataset);
 
     dataset = H5Dopen(file_id, "Density", H5P_DEFAULT);
     dataspace = H5Dget_space(dataset);
-    const int n_dims = H5Sget_simple_extent_ndims(dataspace);
-    hsize_t dims[n_dims];
+    // const int n_dims = H5Sget_simple_extent_ndims(dataspace);
+    // hsize_t dims[n_dims];
     H5Sget_simple_extent_dims(dataspace, dims, NULL);
     H5Dread(dataset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, &logD[offset]);
     H5Dclose(dataset);
@@ -544,9 +544,9 @@ void initialize_healpix_directions(const int order) {
 static void calculate_mfp_avgs() {
   n_bins = int(Ngrid) * n_bins_per_cell * n_loops_per_box; // Number of bins
   mfp_hist = vector<int>(n_bins);            // Allocate space and initialize to zero
-  mfp_hist_xHII = vector<int>(n_xHII_bins);
-  mfp_hist_logT = vector<int>(n_logT_bins);
-  mfp_hist_logD = vector<int>(n_logD_bins);
+  mfp_hist_xHII = vector<int>(n_xHII_bins * n_logR_bins);
+  mfp_hist_logT = vector<int>(n_logT_bins * n_logR_bins);
+  mfp_hist_logD = vector<int>(n_logD_bins * n_logR_bins);
   mfp_avgs = vector<float>(Ngrid3);
 
   // Find the min/max of logT and logD
@@ -625,7 +625,7 @@ static double calculate_mfp_avg(const myint start_cell) {
     mfp_hist[i_bin]++;                       // Increment histogram counter
 
     // 2D Histograms
-    const double log_mfp = log10(mfp*CellSize_cMpc); // Log mean-free-path (cMpc)
+    const double log_mfp = log10(mfp*PixSize_cMpc); // Log mean-free-path (cMpc)
     const int i_logR = floor(iw_logR * (log_mfp - logR_min)); // Index in 2D histogram
     // if (i_logR < 0) error("i_logR < 0");
     // if (i_logR >= n_logR_bins) error("i_logR >= n_logR_bins");
@@ -882,53 +882,58 @@ static void write_1d(hid_t file_id, vector<int>& vec, const char *name) {
   H5Dclose(dataset);
 }
 
-//! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
-static void write_2d(hid_t file_id, vector<int>& vec, const char *name, const int nx, const int ny) {
-  // TODO
-  // // Identifier
-  // hsize_t vec_size = vec.size();
-  // hid_t dataspace_id, dataset_id;
-  // hsize_t dims1d[1] = {vec_size};
+//! \brief Writes out a 2d vector quantity, e.g. ((a1,a2,a3,...), (b1,b2,b3,...), ...)
+static void write_2d(hid_t file_id, vector<int>& vec, const char *name, const hsize_t nx, const hsize_t ny) {
+  // Check dimensions
+  if (vec.size() != nx * ny)
+    error("bad # dims [" + to_string(nx) + ", " + to_string(ny) + "], " + to_string(vec.size()));
 
-  // dataspace_id = H5Screate_simple(1, dims1d, NULL);
-  // dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-  // H5Dclose(dataset_id);
-  // H5Sclose(dataspace_id);
+  // Identifier
+  hid_t dataspace_id, dataset_id;
+  hsize_t dims2d[2] = {nx, ny};
 
-  // // Open dataset and get dataspace
-  // hid_t dataset   = H5Dopen(file_id, name, H5P_DEFAULT);
-  // hid_t filespace = H5Dget_space(dataset);
+  dataspace_id = H5Screate_simple(2, dims2d, NULL);
+  dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_INT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+  H5Dclose(dataset_id);
+  H5Sclose(dataspace_id);
 
-  // // File hyperslab
-  // hsize_t file_offset[1] = {0};
-  // hsize_t file_count[1] = {vec_size};
+  // Open dataset and get dataspace
+  hid_t dataset   = H5Dopen(file_id, name, H5P_DEFAULT);
+  hid_t filespace = H5Dget_space(dataset);
 
-  // H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
+  // File hyperslab
+  hsize_t file_offset[2] = {0, 0};
+  hsize_t file_count[2] = {nx, ny};
 
-  // // Memory hyperslab
-  // hsize_t mem_offset[1] = {0};
-  // hsize_t mem_count[1] = {vec_size};
+  H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
 
-  // hid_t memspace = H5Screate_simple(1, mem_count, NULL);
-  // H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
+  // Memory hyperslab
+  hsize_t mem_offset[2] = {0, 0};
+  hsize_t mem_count[2] = {nx, ny};
 
-  // // Write
-  // H5Dwrite(dataset, H5T_NATIVE_INT, memspace, filespace, H5P_DEFAULT, vec.data());
+  hid_t memspace = H5Screate_simple(2, mem_count, NULL);
+  H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
 
-  // // Close handles
-  // H5Sclose(memspace);
-  // H5Sclose(filespace);
-  // H5Dclose(dataset);
+  // Write
+  H5Dwrite(dataset, H5T_NATIVE_INT, memspace, filespace, H5P_DEFAULT, vec.data());
+
+  // Close handles
+  H5Sclose(memspace);
+  H5Sclose(filespace);
+  H5Dclose(dataset);
 }
 
-//! \brief Writes out a vector quantity, e.g. (a1,a2,a3,...)
-static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) {
-  // Identifier
-  hsize_t vec_size = vec.size();
-  hid_t dataspace_id, dataset_id;
-  hsize_t dims1d[1] = {vec_size};
+//! \brief Writes out a 3d vector quantity
+static void write_3d(hid_t file_id, vector<float>& vec, const char *name, const hsize_t nx, const hsize_t ny, const hsize_t nz) {
+  // Check dimensions
+  if (vec.size() != nx * ny * nz)
+    error("bad # dims");
 
-  dataspace_id = H5Screate_simple(1, dims1d, NULL);
+  // Identifier
+  hid_t dataspace_id, dataset_id;
+  hsize_t dims3d[3] = {nx, ny, nz};
+
+  dataspace_id = H5Screate_simple(3, dims3d, NULL);
   dataset_id = H5Dcreate(file_id, name, H5T_NATIVE_FLOAT, dataspace_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
@@ -938,16 +943,16 @@ static void write_1d_float(hid_t file_id, vector<float>& vec, const char *name) 
   hid_t filespace = H5Dget_space(dataset);
 
   // File hyperslab
-  hsize_t file_offset[1] = {0};
-  hsize_t file_count[1] = {vec_size};
+  hsize_t file_offset[3] = {0, 0, 0};
+  hsize_t file_count[3] = {nx, ny, nz};
 
   H5Sselect_hyperslab(filespace, H5S_SELECT_SET, file_offset, NULL, file_count, NULL);
 
   // Memory hyperslab
-  hsize_t mem_offset[1] = {0};
-  hsize_t mem_count[1] = {vec_size};
+  hsize_t mem_offset[3] = {0, 0, 0};
+  hsize_t mem_count[3] = {nx, ny, nz};
 
-  hid_t memspace = H5Screate_simple(1, mem_count, NULL);
+  hid_t memspace = H5Screate_simple(3, mem_count, NULL);
   H5Sselect_hyperslab(memspace, H5S_SELECT_SET, mem_offset, NULL, mem_count, NULL);
 
   // Write
@@ -1007,12 +1012,10 @@ static void write_data() {
 
   // Main data
   write_1d(file_id, mfp_hist, "mfp_hist");
-  // TODO
-  // write_2d(file_id, mfp_hist_xHII, "mfp_hist_xHII", n_logR_bins, n_xHII_bins);
-  // write_2d(file_id, mfp_hist_logT, "mfp_hist_logT", n_logR_bins, n_logT_bins);
-  // write_2d(file_id, mfp_hist_logD, "mfp_hist_logD", n_logR_bins, n_logD_bins);
-  write_1d_float(file_id, mfp_avgs, "mfp_avgs");
-  // write_1d_float(file_id, mfp_avgs, "mfp_avgs", NumPixels, NumPixels, NumPixels);
+  write_2d(file_id, mfp_hist_xHII, "mfp_hist_xHII", n_logR_bins, n_xHII_bins);
+  write_2d(file_id, mfp_hist_logT, "mfp_hist_logT", n_logR_bins, n_logT_bins);
+  write_2d(file_id, mfp_hist_logD, "mfp_hist_logD", n_logR_bins, n_logD_bins);
+  write_3d(file_id, mfp_avgs, "mfp_avgs", NumPixels, NumPixels, NumPixels);
 
   // Close file
   H5Fclose(file_id);
