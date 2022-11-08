@@ -840,7 +840,7 @@ static void write_data() {
 
   // Main data
   write_1d(file_id, mfp_hist, "mfp_hist");
-  write_3d(file_id, mfp_avgs, "mfp_avgs");
+  write_3d(file_id, mfp_avgs, "mfp_avgs", NumPixels, NumPixels, NumPixels);
 
   // Close file
   H5Fclose(file_id);
