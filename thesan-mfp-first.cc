@@ -13,7 +13,6 @@
 #include <string>     // Standard strings
 #include <vector>     // Standard vectors
 #include <random>     // Random numbers
-#include <algorithm>  // Max function
 #include <sys/stat.h> // Make directories
 #include <time.h>     // Timing utilities
 #include <omp.h>      // OpenMP parallelism
@@ -27,22 +26,13 @@ using std::to_string;
 using std::vector;
 typedef long long myint;
 
-//! \brief Convenience for handling 3D vectors in (x,y,z) order.
-struct Vec3 {
-  float x = 0.;
-  float y = 0.;
-  float z = 0.;
-  Vec3() = default;
-  Vec3(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
-};
-
 // Configuration constants
 static const bool VERBOSE = true;            // Print extra information
 static const bool USE_RENDERS = false;       // Use renders instead of smooth_renders
 // static const int n_mfp = 10000;              // Number of mfp samplings (10^4)
 // static const int n_mfp = 100000;             // Number of mfp samplings (10^5)
-static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
-// static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
+// static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
+static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
 // static const int n_mfp = 100000000;          // Number of mfp samplings (10^8)
 // static const int n_mfp = 1000000000;         // Number of mfp samplings (10^9)
 static const int n_bins_per_cell = 8;        // Number of histogram bins per cell
@@ -82,14 +72,12 @@ static int n_bins;                           // Number of histogram bins
 static vector<double> edges;                 // Cell edge positions (cell width units)
 static vector<double> centers;               // Cell center positions (cell width units)
 static vector<float> HII_Fraction;           // HII fraction of each grid cell
-static vector<Vec3> HII_Gradient;            // HII fraction gradient of each grid cell
 static vector<int> mfp_hist;                 // Histogram of bubble sizes
 
 static void read_header();                   // Read header information
 static void read_data();                     // Read grid data
 static void read_render_data();              // Read grid data
-// static void apply_threshold();               // Apply HII fraction threshold
-static void calculate_gradients();           // Calculate HII fraction gradients
+static void apply_threshold();               // Apply HII fraction threshold
 static void calculate_mfps();                // Calculate all mean-free-paths
 static double calculate_mfp();               // Calculate mean-free-path (cell width units)
 static void write_data();                    // Write data to an output file
@@ -179,10 +167,7 @@ int main(int argc, char** argv) {
     read_data();
 
   // Apply HII fraction threshold
-  // apply_threshold();
-
-  // Calculate HII gradients
-  calculate_gradients();
+  apply_threshold();
 
   // Calculate all mean-free-paths
   calculate_mfps();
@@ -191,7 +176,6 @@ int main(int argc, char** argv) {
   write_data();
 
   // Free memory (overwrite with empty vectors)
-  HII_Gradient = vector<Vec3>();
   mfp_hist = vector<int>();
   HII_Fraction = vector<float>();
   centers = vector<double>();
@@ -387,88 +371,6 @@ static void apply_threshold() {
 }
 
 
-//! \brief Calculate HII fraction gradients in units of 1/(cell widths).
-static void calculate_gradients() {
-  // Initial gradient calculation
-  HII_Gradient.resize(Ngrid3);               // Allocate space
-  #pragma omp parallel for
-  for (myint i = 0; i < Ngrid3; ++i) {
-    // Initialize (x,y,z) indices
-    myint ip = i;                            // Temporary cell index
-    const myint ix = ip / Ngrid2;            // x index
-    ip -= ix * Ngrid2;                       // Hyperslab remainder
-    const myint iy = ip / Ngrid;             // y index
-    const myint iz = ip - iy * Ngrid;        // Column remainder
-    myint ixp = ix + 1, ixm = ix - 1;        // Neighbor indices
-    myint iyp = iy + 1, iym = iy - 1;
-    myint izp = iz + 1, izm = iz - 1;
-    if (ixp == Ngrid) ixp = 0;               // Periodic x boundaries
-    if (ixm == -1) ixm = Ngrid - 1;
-    if (iyp == Ngrid) iyp = 0;               // Periodic y boundaries
-    if (iym == -1) iym = Ngrid - 1;
-    if (izp == Ngrid) izp = 0;               // Periodic z boundaries
-    if (izm == -1) izm = Ngrid - 1;
-    // Note: cell = (ix * Ngrid + iy) * Ngrid + iz; // Cell index
-    const myint i_xp = (ixp * Ngrid + iy) * Ngrid + iz;
-    const myint i_xm = (ixm * Ngrid + iy) * Ngrid + iz;
-    const myint i_yp = (ix * Ngrid + iyp) * Ngrid + iz;
-    const myint i_ym = (ix * Ngrid + iym) * Ngrid + iz;
-    const myint i_zp = (ix * Ngrid + iy) * Ngrid + izp;
-    const myint i_zm = (ix * Ngrid + iy) * Ngrid + izm;
-    const float HII_i = HII_Fraction[i];
-    const float HII_xp = HII_Fraction[i_xp], HII_xm = HII_Fraction[i_xm];
-    const float HII_yp = HII_Fraction[i_yp], HII_ym = HII_Fraction[i_ym];
-    const float HII_zp = HII_Fraction[i_zp], HII_zm = HII_Fraction[i_zm];
-
-    // Calculate gradients
-    float grad_x = 0.5 * (HII_xp - HII_xm); // Note: dx = 1 in cell width units
-    float grad_y = 0.5 * (HII_yp - HII_ym); // Usually: dHII / (2 * dx)
-    float grad_z = 0.5 * (HII_zp - HII_zm);
-
-    // Limit gradients based on neighbors
-    float dphi, psi, alpha = 1.;
-    float dphi_max = std::max({HII_i, HII_xp, HII_xm, HII_yp, HII_ym, HII_zp, HII_zm}) - HII_i;
-    float dphi_min = HII_i - std::min({HII_i, HII_xp, HII_xm, HII_yp, HII_ym, HII_zp, HII_zm});
-    dphi = 0.5 * fabs(grad_x);           // Check x (Usually: grad_x * dx / 2)
-    if (dphi > 0.) {
-      psi = dphi_max / dphi; if (psi < alpha) alpha = psi;
-      psi = dphi_min / dphi; if (psi < alpha) alpha = psi;
-    }
-    dphi = 0.5 * fabs(grad_y);           // Check y
-    if (dphi > 0.) {
-      psi = dphi_max / dphi; if (psi < alpha) alpha = psi;
-      psi = dphi_min / dphi; if (psi < alpha) alpha = psi;
-    }
-    dphi = 0.5 * fabs(grad_z);           // Check z
-    if (dphi > 0.) {
-      psi = dphi_max / dphi; if (psi < alpha) alpha = psi;
-      psi = dphi_min / dphi; if (psi < alpha) alpha = psi;
-    }
-
-    // Limit gradients based on corners, i.e. restrict to [0,1]
-    dphi = 0.5 * (fabs(grad_x) + fabs(grad_y) + fabs(grad_z));
-    if (HII_i + dphi > 1.)                   // Highest corner
-      alpha = (1. - HII_i) / dphi;
-    if (HII_i - dphi < 0.)                   // Lowest corner
-      alpha = HII_i / dphi;
-
-    // Save the final gradients
-    HII_Gradient[i] = Vec3(alpha*grad_x, alpha*grad_y, alpha*grad_z);
-  }
-
-  // Print data
-  if (VERBOSE) {
-    cout << "\nGrad(HII) = [\n ["
-         << HII_Gradient[0].x << " " << HII_Gradient[0].y << " " << HII_Gradient[0].z << "]\n ["
-         << HII_Gradient[1].x << " " << HII_Gradient[1].y << " " << HII_Gradient[1].z << "]\n ["
-         << HII_Gradient[2].x << " " << HII_Gradient[2].y << " " << HII_Gradient[2].z << "]\n ...\n ["
-         << HII_Gradient[Ngrid3-3].x << " " << HII_Gradient[Ngrid3-3].y << " " << HII_Gradient[Ngrid3-3].z << "]\n ["
-         << HII_Gradient[Ngrid3-2].x << " " << HII_Gradient[Ngrid3-2].y << " " << HII_Gradient[Ngrid3-2].z << "]\n ["
-         << HII_Gradient[Ngrid3-1].x << " " << HII_Gradient[Ngrid3-1].y << " " << HII_Gradient[Ngrid3-1].z << "]\n] per cell width" << endl;
-  }
-}
-
-
 //! \brief Calculate all mean-free-paths and bin into a histogram.
 static void calculate_mfps() {
   n_bins = int(Ngrid) * n_bins_per_cell * n_loops_per_box; // Number of bins
@@ -518,7 +420,6 @@ static double calculate_mfp() {
   double l_tot = 0.;                         // Cumulative distance (cell width units)
   double l, l_comp;                          // Comparison distances
   int direction_type;                        // Direction enumerated type
-  double HII = HII_Fraction[cell], prev_HII; // Current/previous HII fractions
 
   // Select a random direction (isotropic distribution)
   const double theta = acos(2. * ran() - 1.);
@@ -583,22 +484,6 @@ static double calculate_mfp() {
         }
       }
     }
-    // Avoid negative distances
-    if (l < 0.)
-      l = 0.;
-
-    // Calculate the next coordinates and new HII fraction
-    x += l * kx; y += l * ky; z += l * kz;
-    prev_HII = HII;                          // Save for interpolation
-    HII = HII_Fraction[cell]
-        + HII_Gradient[cell].x * (x - centers[ix])
-        + HII_Gradient[cell].y * (y - centers[iy])
-        + HII_Gradient[cell].z * (z - centers[iz]);
-    if (HII <= 0.5) {                        // Stop ray at x_HII = 0.5
-      l *= (0.5 - prev_HII) / (HII - prev_HII); // Adjust distance
-      l_tot += l;                            // Add current path length
-      break;                                 // All we need is l_tot
-    }
 
     // Update position and indices based on the direction
     switch (direction_type) {                // Actions based on direction
@@ -648,14 +533,13 @@ static double calculate_mfp() {
         error("Unrecognized direction type in ray-tracing calculation.");
     }
 
-    // Update cell index, coordinates, and HII fraction
     prev_cell = cell;                        // Reset previous cell index
     cell = (ix * Ngrid + iy) * Ngrid + iz;   // Update cell index
-    HII = HII_Fraction[cell]
-        + HII_Gradient[cell].x * (x - centers[ix])
-        + HII_Gradient[cell].y * (y - centers[iy])
-        + HII_Gradient[cell].z * (z - centers[iz]);
-  } while (HII > 0.5 && l_tot < l_max);      // Limit total distance by l_max
+    if (l < 0.)
+      l = 0.;                                // Avoid negative distances
+    l_tot += l;                              // Add current path length
+    x += l * kx; y += l * ky; z += l * kz;
+  } while (HII_Fraction[cell] > 0.5 && l_tot < l_max); // Limit total distance by l_max
 
   if (l_tot > l_max)
     l_tot = l_max;                           // Adjust overshooting distance

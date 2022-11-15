@@ -1,7 +1,7 @@
 #!/bin/bash
 
-export OMP_NUM_THREADS=1
-#export OMP_NUM_THREADS=16
+#export OMP_NUM_THREADS=1
+export OMP_NUM_THREADS=16
 
 # Mac laptops
 # brew install openmpi libomp hdf5
@@ -37,7 +37,7 @@ run () {
 
 
 #compile_all
-#run thesan-mfp
-run thesan-mfp-grid
+run thesan-mfp
+#run thesan-mfp-grid
 
 
