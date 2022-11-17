@@ -93,7 +93,7 @@ static vector<float> mfp_avgs;               // Grid of averages bubble sizes
 static void read_header();                   // Read header information
 static void read_data();                     // Read grid data
 static void read_render_data();              // Read grid data
-static void apply_threshold();               // Apply HII fraction threshold
+// static void apply_threshold();               // Apply HII fraction threshold
 static void initialize_healpix_directions(const int order); // Calculate healpix directions
 static void calculate_mfp_avgs();            // Calculate all mean-free-paths
 static double calculate_mfp_avg(const myint start_cell); // Calculate mean-free-path of one cell (cell width units)
@@ -186,7 +186,7 @@ int main(int argc, char** argv) {
     read_data();
 
   // Apply HII fraction threshold
-  apply_threshold();
+  // apply_threshold();
 
   // Calculate all mean-free-paths
   calculate_mfp_avgs();
@@ -609,9 +609,21 @@ static double calculate_mfp_avg(const myint start_cell) {
     return 0.;
 
   // Indices in 2D histograms
-  const double i_xHII = floor(iw_xHII * (HII_Fraction[start_cell] - xHII_min));
-  const double i_logT = floor(iw_logT * (logT[start_cell] - logT_min));
-  const double i_logD = floor(iw_logD * (logD[start_cell] - logD_min));
+  int i_xHII = floor(iw_xHII * (HII_Fraction[start_cell] - xHII_min));
+  int i_logT = floor(iw_logT * (logT[start_cell] - logT_min));
+  int i_logD = floor(iw_logD * (logD[start_cell] - logD_min));
+  if (i_xHII < 0)
+    i_xHII = 0;
+  if (i_xHII >= n_xHII_bins)
+    i_xHII = n_xHII_bins - 1;
+  if (i_logT < 0)
+    i_logT = 0;
+  if (i_logT >= n_logT_bins)
+    i_logT = n_logT_bins - 1;
+  if (i_logD < 0)
+    i_logD = 0;
+  if (i_logD >= n_logD_bins)
+    i_logD = n_logD_bins - 1;
 
   for (int i_LOS = 0; i_LOS < n_LOS; ++i_LOS) {
     const double mfp = calculate_mfp_LOS(start_cell, i_LOS); // Mean-free-path (cell width units)
