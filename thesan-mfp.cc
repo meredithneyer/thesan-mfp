@@ -657,6 +657,7 @@ static double calculate_mfp() {
         + HII_Gradient[cell].x * (x - centers[ix])
         + HII_Gradient[cell].y * (y - centers[iy])
         + HII_Gradient[cell].z * (z - centers[iz]);
+    l_tot += l;                            // Add current path length
   } while (HII > 0.5 && l_tot < l_max);      // Limit total distance by l_max
 
   if (l_tot > l_max)
