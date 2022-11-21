@@ -41,8 +41,8 @@ static const bool VERBOSE = true;            // Print extra information
 static const bool USE_RENDERS = false;       // Use renders instead of smooth_renders
 // static const int n_mfp = 10000;              // Number of mfp samplings (10^4)
 // static const int n_mfp = 100000;             // Number of mfp samplings (10^5)
-static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
-// static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
+// static const int n_mfp = 1000000;            // Number of mfp samplings (10^6)
+static const int n_mfp = 10000000;           // Number of mfp samplings (10^7)
 // static const int n_mfp = 100000000;          // Number of mfp samplings (10^8)
 // static const int n_mfp = 1000000000;         // Number of mfp samplings (10^9)
 static const int n_bins_per_cell = 8;        // Number of histogram bins per cell
@@ -447,10 +447,12 @@ static void calculate_gradients() {
 
     // Limit gradients based on corners, i.e. restrict to [0,1]
     dphi = 0.5 * (fabs(grad_x) + fabs(grad_y) + fabs(grad_z));
-    if (HII_i + dphi > 1.)                   // Highest corner
-      alpha = (1. - HII_i) / dphi;
-    if (HII_i - dphi < 0.)                   // Lowest corner
-      alpha = HII_i / dphi;
+    if (HII_i + dphi > 1.) {             // Highest corner
+      psi = (1. - HII_i) / dphi; if (psi < alpha) alpha = psi;
+    }
+    if (HII_i - dphi < 0.) {             // Lowest corner
+      psi = HII_i / dphi; if (psi < alpha) alpha = psi;
+    }
 
     // Save the final gradients
     HII_Gradient[i] = Vec3(alpha*grad_x, alpha*grad_y, alpha*grad_z);
