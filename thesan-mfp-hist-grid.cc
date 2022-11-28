@@ -78,7 +78,7 @@ static myint Ngrid2;                         // Save hyperslab size
 static myint Ngrid3;                         // Total number of cells
 static double Ngrid_double;                  // Number of pixels on a side (double)
 static double Ngrid3_double;                 // Total number of cells (double)
-static double l_max;                         // Max ray-tracing distance (cell width units)
+static double l_min, l_max;                  // Max ray-tracing distance (cell width units)
 static int n_bins;                           // Number of histogram bins
 static const int n_logR_bins = 360;          // Number of log(R_eff) histogram bins
 static const int n_xHII_bins = 360;          // Number of x_HII histogram bins
@@ -258,6 +258,7 @@ static void read_header() {
   Ngrid3 = Ngrid * Ngrid2;                   // Total number of grid cells
   Ngrid_double = double(Ngrid);              // As double type
   Ngrid3_double = double(Ngrid3);            // As double type
+  l_min = 1.000000001 / double(n_bins_per_cell); // Min distance (cell width units)
   l_max = 0.999999999 * double(Ngrid) * double(n_loops_per_box); // Max distance (cell width units)
   edges.resize(Ngrid+1);                     // Cell edge positions (cell width units)
   centers.resize(Ngrid);                     // Cell center positions (cell width units)
@@ -902,6 +903,8 @@ static double calculate_mfp_LOS(myint cell, const int i_LOS) {
 
   if (l_tot > l_max)
     l_tot = l_max;                           // Adjust overshooting distance
+  if (l_tot < l_min)
+    l_tot = l_min;                           // Adjust undershooting distance
 
   return l_tot;                              // Final mean-free-path (cell width units)
 }

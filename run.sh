@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=16
 # Mac laptops
 # brew install openmpi libomp hdf5
 CC="/usr/local/bin/mpicxx"
-CFLAGS="-Xpreprocessor -fopenmp -std=c++14 -g"
+CFLAGS="-Xpreprocessor -fopenmp -std=c++14"
 IFLAGS=""
 LFLAGS="-lomp -lhdf5"
 
