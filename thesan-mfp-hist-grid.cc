@@ -50,7 +50,7 @@ static const int n_loops_per_box = 2;        // Maximum distance in units of box
 static const double _2pi = 2. * M_PI;
 
 // Distinguish between directions
-enum DirectionTypes { PosX, NegX, PosY, NegY, PosZ, NegZ };
+enum DirectionTypes { NotSet = 0, PosX, NegX, PosY, NegY, PosZ, NegZ };
 
 // Main control variables
 static string executable;                    // Executable name (command line)
@@ -768,7 +768,7 @@ static double calculate_mfp_LOS(myint cell, const int i_LOS) {
   double z = centers[iz];
   double l_tot = 0.;                         // Cumulative distance (cell width units)
   double l, l_comp;                          // Comparison distances
-  int direction_type;                        // Direction enumerated type
+  int direction_type = NotSet;               // Direction enumerated type
   double HII = HII_Fraction[cell], prev_HII; // Current/previous HII fractions
   double kx = directions[i_LOS][0];
   double ky = directions[i_LOS][1];
@@ -887,7 +887,7 @@ static double calculate_mfp_LOS(myint cell, const int i_LOS) {
         }
         break;
       default:
-        error("Unrecognized direction type in ray-tracing calculation.");
+        error("Unrecognized direction type in ray-tracing calculation: " + to_string(direction_type));
     }
 
     // Update cell index, coordinates, and HII fraction

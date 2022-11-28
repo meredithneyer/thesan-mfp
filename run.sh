@@ -6,7 +6,7 @@ export OMP_NUM_THREADS=16
 # Mac laptops
 # brew install openmpi libomp hdf5
 CC="/usr/local/bin/mpicxx"
-CFLAGS="-Xpreprocessor -fopenmp -std=c++14"
+CFLAGS="-Xpreprocessor -fopenmp -std=c++14 -g"
 IFLAGS=""
 LFLAGS="-lomp -lhdf5"
 
@@ -27,6 +27,7 @@ compile () {
 compile_all () {
   compile thesan-mfp
   compile thesan-mfp-grid
+  compile thesan-mfp-hist-grid
 }
 
 # Run executable
@@ -35,9 +36,13 @@ run () {
   ./$1 ../Thesan-1 output 54
 }
 
+debug () {
+  compile $1
+  lldb -- ./$1 ../Thesan-1 output 54
+}
 
 #compile_all
-run thesan-mfp
+#run thesan-mfp
 #run thesan-mfp-grid
-
+run thesan-mfp-hist-grid
 
